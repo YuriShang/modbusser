@@ -60,11 +60,10 @@ class TableModel(QAbstractTableModel):
         self.endInsertRows()
         return True
 
-    def flags(self, index):
+    """def flags(self, index):
         if index.isValid():
             if index.column() == 0:
-                return Qt.ItemIsSelectable | Qt.ItemIsEditable
-
+                return Qt.ItemIsSelectable | Qt.ItemIsEditable"""
 
 
 class Ui(QMainWindow):
