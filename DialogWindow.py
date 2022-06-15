@@ -14,14 +14,14 @@ from PyQt5 import QtCore, QtGui, QtWidgets
 class SettingsWin(object):
     def setupUi(self, set_win):
         set_win.setObjectName("set_win")
-        set_win.resize(250, 300)
+        set_win.resize(400, 300)
         sizePolicy = QtWidgets.QSizePolicy(QtWidgets.QSizePolicy.Fixed, QtWidgets.QSizePolicy.Fixed)
         sizePolicy.setHorizontalStretch(0)
         sizePolicy.setVerticalStretch(0)
         sizePolicy.setHeightForWidth(set_win.sizePolicy().hasHeightForWidth())
         set_win.setSizePolicy(sizePolicy)
-        set_win.setMinimumSize(QtCore.QSize(250, 300))
-        set_win.setMaximumSize(QtCore.QSize(250, 300))
+        set_win.setMinimumSize(QtCore.QSize(400, 300))
+        set_win.setMaximumSize(QtCore.QSize(400, 300))
         self.gridLayout = QtWidgets.QGridLayout(set_win)
         self.gridLayout.setObjectName("gridLayout")
         self.parity_label = QtWidgets.QLabel(set_win)
