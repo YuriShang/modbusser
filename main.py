@@ -3,9 +3,11 @@ import sys
 import os
 import winreg
 
+from PyQt5 import QtGui, QtCore, QtWidgets
+
 from PyQt5.QtGui import QIcon, QColor, QFont
 from PyQt5.QtCore import QObject, QAbstractTableModel, pyqtSignal, Qt, QThread, QDir, QVariant, QModelIndex, \
-    QPersistentModelIndex
+    QPersistentModelIndex, pyqtSlot, QTimer
 from PyQt5.QtWidgets import QMainWindow, QApplication, QDialog, QFileDialog, QMessageBox, QCheckBox, QStyledItemDelegate
 
 from pymodbus.client.sync import ModbusSerialClient
@@ -20,70 +22,69 @@ from DialogWindow import SettingsWin
 from AboutWindow import AboutWin
 
 
-class CustomDelegate(QStyledItemDelegate):
+
+class CustomDelegate(QtWidgets.QStyledItemDelegate):
     def initStyleOption(self, option, index):
-        value = index.data(Qt.CheckStateRole)
-        if value is None:
-            model = index.model()
-            model.setData(index, Qt.Unchecked, Qt.CheckStateRole)
+        value = index.data(QtCore.Qt.CheckStateRole)
+        model = index.model()
+        model.setData(index, QtCore.Qt.Unchecked, QtCore.Qt.CheckStateRole)
         super().initStyleOption(option, index)
-        option.direction = Qt.LeftToRight
-        option.displayAlignment = Qt.AlignLeft | Qt.AlignVCenter
+        option.direction = QtCore.Qt.LeftToRight
+        option.displayAlignment = QtCore.Qt.AlignLeft | QtCore.Qt.AlignVCenter
 
 
-class RowColorDelegateSilver(QStyledItemDelegate):
-    def initStyleOption(self, option, index):
-        super().initStyleOption(option, index)
-        if option.text.strip():
-            option.backgroundBrush = QColor("silver")
-
-
-class RowColorDelegateWhite(QStyledItemDelegate):
+class RowColorDelegateSilver(QtWidgets.QStyledItemDelegate):
     def initStyleOption(self, option, index):
         super().initStyleOption(option, index)
         if option.text.strip():
-            option.backgroundBrush = QColor("white")
+            option.backgroundBrush = QtGui.QColor("silver")
 
 
-class TableModel(QAbstractTableModel):
-    def __init__(self, data):
+class RowColorDelegateWhite(QtWidgets.QStyledItemDelegate):
+    def initStyleOption(self, option, index):
+        super().initStyleOption(option, index)
+        if option.text.strip():
+            option.backgroundBrush = QtGui.QColor("white")
+
+
+class TableModel(QtCore.QAbstractTableModel):
+    def __init__(self):
         super(TableModel, self).__init__()
-        self._data = data
+        self._data = []
+        self.checkStates = {}
         self.header = ['Регистр', 'Тип данных', 'ID', 'Статус', 'Наименование', 'Значение']
-        self.check_states = dict()
         self.flag = False
 
     def data(self, index, role):
-        value = self._data[index.row()][index.column()]
-
-        if role == Qt.DisplayRole:
-            return value
-        elif role == Qt.TextAlignmentRole:
+        if role == QtCore.Qt.DisplayRole:
+            return self._data[index.row()][index.column()]
+        elif role == QtCore.Qt.TextAlignmentRole:
             if index.column() == 5:
-                return Qt.AlignVCenter | Qt.AlignLeft
-            return Qt.AlignVCenter | Qt.AlignHCenter
-        elif role == Qt.ForegroundRole:
+                return QtCore.Qt.AlignVCenter | QtCore.Qt.AlignLeft
+            return QtCore.Qt.AlignVCenter | QtCore.Qt.AlignHCenter
+        elif role == QtCore.Qt.ForegroundRole:
             if index.column() == 4:
-                return QColor('grey')
-        elif role == Qt.CheckStateRole:
-            value = self.check_states.get(QPersistentModelIndex(index))
+                return QtGui.QColor('grey')
+        elif role == QtCore.Qt.CheckStateRole:
+            value = self.checkStates.get(QtCore.QPersistentModelIndex(index))
             if value is not None:
                 return value
 
-    def setData(self, index, value, role=Qt.EditRole):
+    def setData(self, index, value, role=QtCore.Qt.EditRole):
         row = index.row()
         column = index.column()
-        if role == Qt.EditRole:
-            self._data[row][column] = value
+        if role == QtCore.Qt.EditRole:
+            if not value:
+                self._data[row][column] = self._data[index.row()][index.column()]
+            else:
+                self._data[row][column] = value
             self.dataChanged.emit(index, index, (role,))
             return True
-        if role == Qt.CheckStateRole:
-            self.check_states[QPersistentModelIndex(index)] = value
+        if role == QtCore.Qt.CheckStateRole:
+            self.checkStates[QtCore.QPersistentModelIndex(index)] = value
+            self.dataChanged.emit(index, index, (role,))
             if self.flag:
                 upd.row_brush_signal.emit(index.row(), value)
-            if self._data[row][column] == self._data[-1][0]:
-                self.flag = True
-            self.dataChanged.emit(index, index, (role,))
             return True
         return False
 
@@ -91,24 +92,36 @@ class TableModel(QAbstractTableModel):
         return len(self._data)
 
     def columnCount(self, index):
-        return len(self._data[0])
+        return 6
 
     def headerData(self, col, orientation, role):
-        if orientation == Qt.Horizontal and role == Qt.DisplayRole:
-            return QVariant(self.header[col])
-        return QVariant()
+        if orientation == QtCore.Qt.Horizontal and role == QtCore.Qt.DisplayRole:
+            return QtCore.QVariant(self.header[col])
+        return QtCore.QVariant()
 
-    def insertRows(self, rows, parent=QModelIndex()):
-        self.beginInsertRows(parent, 0, 96)
+    def insertRows(self, rows, parent=QtCore.QModelIndex()):
+        self.beginInsertRows(parent, 0, len(rows)-1)
         """for i, row in enumerate(rows):
-            self._data[i][-1] = row"""
+            self._data[i] = row"""
         self._data.extend(rows)
         self.endInsertRows()
         return True
 
+    def removeRows(self, position, rows, parent=QtCore.QModelIndex()):
+        start, end = position, rows 
+        self.beginRemoveRows(parent, start, end)
+        self._data.clear()
+        self.endRemoveRows()
+        return True
+
+    def updateTable(self):
+        index_1 = self.index(0, 0)
+        index_2 = self.index(0, -1)
+        self.dataChanged.emit(index_1, index_2, [Qt.DisplayRole])
+
     def flags(self, index):
         if index.isValid():
-            return Qt.ItemIsEnabled | Qt.ItemIsEditable | Qt.ItemIsUserCheckable
+            return QtCore.Qt.ItemIsEnabled | QtCore.Qt.ItemIsEditable | QtCore.Qt.ItemIsUserCheckable
 
 
 class Ui(QMainWindow):
@@ -121,9 +134,19 @@ class Ui(QMainWindow):
 
         self.table = self.main_window.tableView
         self.table.horizontalHeader().setStretchLastSection(True)
-        self.table.setShowGrid(True)
-        self.table.setGeometry(10, 50, 780, 645)
-        self.table.setSelectionMode(0)
+        #self.table.setShowGrid(True)
+        #self.table.setGeometry(10, 50, 780, 645)
+        #self.table.setSelectionMode(0)
+
+        """# Table model object
+        self.rows = [['' for i in range(6)]]
+        self.rowCount = 0
+        self.model = TableModel(self.rows)
+        self.table.setModel(self.model)"""
+
+        # Row color delegates
+        self.silver = RowColorDelegateSilver()
+        self.white = RowColorDelegateWhite()
 
         # Buttons connections
         self.main_window.open_action.triggered.connect(self.loadCsv)
@@ -132,11 +155,6 @@ class Ui(QMainWindow):
         self.main_window.status_box.stateChanged.connect(self.hide_minuses)
         self.main_window.status_box.setChecked(True)
         self.main_window.resetButton.clicked.connect(self.resetRowBrush)
-
-        self.model = TableModel([['','','','','','']])
-        self.table.setModel(self.model)
-        delegate = CustomDelegate(self.table)
-        self.table.setItemDelegateForColumn(0, delegate)
 
         try:
             key = winreg.OpenKey(winreg.HKEY_CURRENT_USER, "Software\\QtProject\\OrganizationDefaults\\FileDialog")
@@ -151,27 +169,37 @@ class Ui(QMainWindow):
     def resetRowBrush(self):
         for row in range(self.model.rowCount(0)):
             self.rowColor(row, 0)
-        for key in self.model.check_states:
-            self.model.check_states[key] = 0
+        if self.model.checkStates:
+            for key in self.model.checkStates:
+                self.model.checkStates[key] = 0
 
     def rowColor(self, row, state):
-        silver = RowColorDelegateSilver(self.table)
-        white = RowColorDelegateWhite(self.table)
         if state:
-            self.table.setItemDelegateForRow(row, silver)
+            self.table.setItemDelegateForRow(row, self.silver)
         else:
-            self.table.setItemDelegateForRow(row, white)
+            self.table.setItemDelegateForRow(row, self.white)
 
     def loadCsv(self, fileName):
-        fileName, _ = QFileDialog.getOpenFileName(self, "Выбрать карту Modbus",
+        fileName, _ = QtWidgets.QFileDialog.getOpenFileName(self, "Выбрать карту Modbus",
                                                   (self.last_path + "/Modbus RTU map.txt"),
                                                   "*.txt")
-
         if fileName:
             self.loadCsvOnOpen(fileName)
+            self.model = TableModel()
+            self.table.setModel(self.model)
+            self.model.insertRows(self.rows)
+            if not self.tableResizeAccept:
+                self.delegate = CustomDelegate()
+                self.table.setItemDelegateForColumn(0, self.delegate)
+                self.table.resizeColumnsToContents()
+                self.tableResizeAccept = True
+            self.model.flag = True
+            self.hide_minuses()
+            self.resetRowBrush()
 
     def loadCsvOnOpen(self, fileName):
-        resize_accept = True
+        if child.client:
+            child.stop()
         self.list_of_items = []
         if fileName:
             print(fileName + " loaded")
@@ -186,10 +214,11 @@ class Ui(QMainWindow):
                 self.ints = []
                 self.rows = []
                 self.max_len = 0
-                name_label = []
+                self.name = ()
                 for row in csv.reader(f, delimiter="|"):
+                    #self.rowCount += 1
                     if len(row) == 1:
-                        name_label.append(row[0])
+                        self.name += row[0],
                         continue
                     if row == []:
                         continue
@@ -199,9 +228,7 @@ class Ui(QMainWindow):
                         self.ints.append(row[4].strip(' ='))  # .split(':')[1].strip())
                     if row[0] == '     ':
                         continue
-
                     row[4] = row[4].strip(' ')
-
                     if len(row[4]) > self.max_len:
                         self.max_len = len(row[4])
 
@@ -210,17 +237,10 @@ class Ui(QMainWindow):
                     cort = (int(row[0]), row[1].strip())
                     self.regs.append(cort)
 
-            self.main_window.name_label.setText(name_label[0])
-            print(self.rows)
-            self.model.insertRows(self.rows)
-
-            if not self.tableResizeAccept:
-                self.table.resizeColumnsToContents()
-                self.tableResizeAccept = True
-
+            self.rowCount = 0
+            self.main_window.name_label.setText(self.name[0])
             self.dict = {}
             self.minus_rows = [i for i, e in enumerate(self.rows) if ' - ' in e]
-            self.hide_minuses()
 
             current_digit = None
             for el in self.ints:
@@ -233,21 +253,32 @@ class Ui(QMainWindow):
     def writeCsv(self, fileName):
         if child.client:
             child.stop()
-        fileName, _ = QFileDialog.getSaveFileName(self, "Экспорт данных",
-                                                  (QDir.homePath() + "/" + self.fname + ' ' + self.name),
+
+        checkedStates = [v for v in self.model.checkStates.values()]
+        checkedRows = [i for i, row in enumerate(checkedStates) if row == 2]
+        rows = [range(self.model.rowCount(0)), checkedRows][any(checkedRows)]
+        jsonName = self.name[0].split(':')[1].strip(' .json')
+
+        if checkedRows:
+            jsonName += ' selected rows'
+
+        fileName, _ = QtWidgets.QFileDialog.getSaveFileName(self, "Экспорт данных",
+                                                  (f'{QtCore.QDir.homePath()}/{self.fname} {jsonName}'),
                                                   "(*.txt)")
         if fileName:
             print(fileName)
             f = open(fileName, 'w', newline='')
             with f:
                 writer = csv.writer(f, delimiter='|')
-                f.write(self.name)
-                writer.writerow('')
+                f.write(jsonName)
+                writer.writerow("")
+                writer.writerow("")
 
-                for row in range(self.model.rowCount(0)):
+                for row in rows:
                     row_data = []
                     for col in range(self.model.columnCount(0)):
-                        row_data.append(self.model.index(row, col, QModelIndex()).data(Qt.DisplayRole))
+                        row_data.append(
+                            self.model.index(row, col, QtCore.QModelIndex()).data(QtCore.Qt.DisplayRole))
                         if row_data == '':
                             continue
                     row_data[4] = row_data[4].ljust(self.max_len + 1, ' ')
@@ -261,13 +292,13 @@ class Ui(QMainWindow):
                 else:
                     self.main_window.tableView.setRowHidden(idx, False)
         except:
-            pass
+            print("Failed hide minuses")
 
 
 class ChildWindow(QDialog, Ui):
     def __init__(self):
         super(Ui, self).__init__()
-        QDialog.__init__(self, None, Qt.WindowFlags(Qt.WA_DeleteOnClose))
+        QtWidgets.QDialog.__init__(self, None, QtCore.Qt.WindowFlags(QtCore.Qt.WA_DeleteOnClose))
         self.settings = SettingsWin()
         self.settings.setupUi(self)
 
@@ -279,7 +310,7 @@ class ChildWindow(QDialog, Ui):
         win.main_window.slave_id_sb.setValue(1)
 
         win.main_window.scan_rate_sb.clear()
-        win.main_window.scan_rate_sb.setValue(1000)
+        win.main_window.scan_rate_sb.setValue(500)
 
         self.settings.buttonBox.accepted.connect(self.accept_data)
         self.settings.buttonBox.rejected.connect(self.reject_data)
@@ -326,7 +357,7 @@ class ChildWindow(QDialog, Ui):
         del self.com_stat_list[0]
 
     def thread_start(self):
-        self.threadd = QThread(parent=self)
+        self.threadd = QtCore.QThread(parent=self)
         worker.moveToThread(self.threadd)
         self.threadd.started.connect(worker.run)
 
@@ -345,6 +376,9 @@ class ChildWindow(QDialog, Ui):
         self.start()
 
     def start(self):
+        self.timer = QtCore.QTimer()
+        self.timer.timeout.connect(win.model.updateTable)
+        self.timer.start(400)
         try:
             self.connect()
         except:
@@ -373,6 +407,7 @@ class ChildWindow(QDialog, Ui):
 
     def stop(self):
         self.threadd.terminate()
+        self.timer.stop()
         self._isRunning = False
         try:
             self.client.socket.close()
@@ -387,8 +422,8 @@ class ChildWindow(QDialog, Ui):
 
     def error(self):
         self.stop()
-        msg = QMessageBox()
-        msg.setIcon(QMessageBox.Warning)
+        msg = QtWidgets.QMessageBox()
+        msg.setIcon(QtWidgets.QMessageBox.Warning)
         msg.setText("Ошибка подключения")
         msg.setInformativeText("Проверьте настройки, затем подключите кабель к любому USB порту и нажмите 'Ок'")
         msg.setWindowTitle("MODBUSSER")
@@ -397,23 +432,23 @@ class ChildWindow(QDialog, Ui):
         self.update_ports()
 
 
-class AboutWindow(QDialog):
+class AboutWindow(QtWidgets.QDialog):
     def __init__(self):
-        QDialog.__init__(self, None, Qt.WindowFlags(Qt.WA_DeleteOnClose))
+        QtWidgets.QDialog.__init__(self, None, QtCore.Qt.WindowFlags(QtCore.Qt.WA_DeleteOnClose))
         self.about = AboutWin()
         self.about.setupUi(self)
-        self.setWindowFlag(Qt.WindowCloseButtonHint)
+        self.setWindowFlag(QtCore.Qt.WindowCloseButtonHint)
         self.about.ok_btn.clicked.connect(self.close)
 
 
-class Upd(QObject):
-    update_signal = pyqtSignal()
-    stop_signal = pyqtSignal()
-    err_signal = pyqtSignal()
-    row_brush_signal = pyqtSignal(int, int)
+class Upd(QtCore.QObject):
+    update_signal = QtCore.pyqtSignal()
+    stop_signal = QtCore.pyqtSignal()
+    err_signal = QtCore.pyqtSignal()
+    row_brush_signal = QtCore.pyqtSignal(int, int)
 
 
-class ReadHoldingRegisters(QObject):
+class ReadHoldingRegisters(QtCore.QObject):
     def __init__(self):
         super(ReadHoldingRegisters, self).__init__()
         self.upd = Upd()
@@ -422,88 +457,89 @@ class ReadHoldingRegisters(QObject):
         self.upd.err_signal.connect(child.error)
 
     def new_it(self, response):
-        win.model.insertRows(response)
+        for i in range(len(win.rows)):
+            win.rows[i][-1] = response[i]
         if child._isRunning:
             self.upd.update_signal.emit()
 
     def run(self):
         mb_data = []  # Список считанных данных
         response = []  # Сконвертированный отформатированный список данных
-
         count = 125  # Максимальное кол-во регистров, для
         # одновременного считывания (ограничение протокола модбас)
 
         slaveID = int(win.main_window.slave_id_sb.value())  # Адрес slave устройства
 
-        try:
-            while child._isRunning:
-                time.sleep((int(win.main_window.scan_rate_sb.value())) / 1000)  # Scan Rate
-                reg_blocks = win.regs[-1][0] // count  # Количесвто блоков по 125 регистров
-                last_block = win.regs[-1][0] - reg_blocks * count  # Последний блок с
-                # остаточным количесвтом регистров
-                adr = 0
+        #try:
+        while child._isRunning:
+            time.sleep((int(win.main_window.scan_rate_sb.value())) / 1000)  # Scan Rate
+            reg_blocks = win.regs[-1][0] // count  # Количесвто блоков по 125 регистров
+            last_block = win.regs[-1][0] - reg_blocks * count  # Последний блок с
+            # остаточным количесвтом регистров
+            adr = 0
 
-                for i in range(reg_blocks):
-                    self.res = child.client.read_holding_registers(address=adr,
-                                                                   count=count,
-                                                                   unit=slaveID)
-                    adr = adr + count
-                    mb_data.extend(self.res.registers)
-
+            for i in range(reg_blocks):
                 self.res = child.client.read_holding_registers(address=adr,
-                                                               count=last_block,
-                                                               unit=slaveID)
+                                                                count=count,
+                                                                unit=slaveID)
+                adr = adr + count
                 mb_data.extend(self.res.registers)
 
-                for i in range(len(win.regs)):
-                    self.register, data_type = win.regs[i][0], win.regs[i][1]
+            self.res = child.client.read_holding_registers(address=adr,
+                                                            count=last_block,
+                                                            unit=slaveID)
+            mb_data.extend(self.res.registers)
 
-                    if data_type == 'MEA':
-                        self.reg = struct.pack('>HH', mb_data[self.register], mb_data[self.register - 1])
-                        self.reg_float = [struct.unpack('>f', self.reg)]
-                        response.append(round(self.reg_float[0][0], 3))
+            for i in range(len(win.regs)):
+                self.register, data_type = win.regs[i][0], win.regs[i][1]
 
-                    elif data_type == 'BIN':
-                        self.reg = mb_data[self.register - 1]
+                if data_type == 'MEA':
+                    self.reg = struct.pack('>HH', mb_data[self.register], mb_data[self.register - 1])
+                    self.reg_float = [struct.unpack('>f', self.reg)]
+                    response.append(str(round(self.reg_float[0][0], 3)))
 
-                        ones = []
-                        for x in range(16):
-                            if (self.reg >> x) & 0x1:
-                                ones.append(' ' + (str(x)))
-                        ones.reverse()
+                elif data_type == 'BIN':
+                    self.reg = mb_data[self.register - 1]
 
-                        self.reg = f"{mb_data[self.register - 1]:>016b}"
-                        for j in range(len(ones)):
-                            self.reg = str(self.reg) + ' ' + ones[j]
-                        if self.reg[15] == '1':
-                            self.reg = 'ДА   ' + self.reg
-                        elif self.reg[15] == '0':
-                            self.reg = 'НЕТ  ' + self.reg
-                        if self.reg[14] == '1' and self.reg[20] == '1' and int(self.reg[5:20], 2) < 65:
-                            self.reg = self.reg + ' (Тревога)'
-                        elif self.reg[13] == '1' and self.reg[20] == '1' and int(self.reg[5:20], 2) < 129:
-                            self.reg = self.reg + ' (Предупреждение)'
-                        response.append(self.reg)
+                    ones = []
+                    for x in range(16):
+                        if (self.reg >> x) & 0x1:
+                            ones.append(' ' + (str(x)))
+                    ones.reverse()
 
-                    elif data_type == 'INT':
-                        self.reg = mb_data[self.register - 1]
-                        try:
-                            if int(self.reg) > int(len(win.dict[self.register][-1])):
-                                continue
-                            else:
-                                self.reg = str(win.dict[self.register][self.reg]).replace(': ', ' - ')
-                        except:
-                            pass
-                        response.append(self.reg)
+                    self.reg = f"{mb_data[self.register - 1]:>016b}"
+                    for j in range(len(ones)):
+                        self.reg = str(self.reg) + ' ' + ones[j]
+                    if self.reg[15] == '1':
+                        self.reg = 'ДА   ' + self.reg
+                    elif self.reg[15] == '0':
+                        self.reg = 'НЕТ  ' + self.reg
+                    if self.reg[14] == '1' and self.reg[20] == '1' and int(self.reg[5:20], 2) < 65:
+                        self.reg = self.reg + ' (Тревога)'
+                    elif self.reg[13] == '1' and self.reg[20] == '1' and int(self.reg[5:20], 2) < 129:
+                        self.reg = self.reg + ' (Предупреждение)'
+                    response.append(self.reg)
 
-                self.new_it(response)
-                mb_data.clear()
-                response.clear()
+                elif data_type == 'INT':
+                    self.reg = mb_data[self.register - 1]
+                    try:
+                        if int(self.reg) > int(len(win.dict[self.register][-1])):
+                            continue
+                        else:
+                            self.reg = str(win.dict[self.register][self.reg]).replace(': ', ' - ')
+                    except:
+                        pass
+                    response.append(self.reg)
 
-        except Exception:
+            self.new_it(response)
+            win.model.updateTable()
+            mb_data.clear()
+            response.clear()
+
+        """except Exception:
             if child._isRunning:
                 self.upd.err_signal.emit()
-
+"""
 
 def child_exec():
     if child.client:
@@ -514,7 +550,7 @@ def child_exec():
 
 
 if __name__ == '__main__':
-    app = QApplication(sys.argv)
+    app = QtWidgets.QApplication(sys.argv)
     app.setWindowIcon(QIcon('icon.ico'))
     upd = Upd()
 
