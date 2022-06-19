@@ -14,14 +14,14 @@ from PyQt5 import QtCore, QtGui, QtWidgets
 class AboutWin(object):
     def setupUi(self, about_dialog):
         about_dialog.setObjectName("about_dialog")
-        about_dialog.resize(450, 230)
+        #about_dialog.resize(450, 230)
         sizePolicy = QtWidgets.QSizePolicy(QtWidgets.QSizePolicy.Fixed, QtWidgets.QSizePolicy.Fixed)
         sizePolicy.setHorizontalStretch(0)
         sizePolicy.setVerticalStretch(0)
         sizePolicy.setHeightForWidth(about_dialog.sizePolicy().hasHeightForWidth())
         about_dialog.setSizePolicy(sizePolicy)
-        about_dialog.setMinimumSize(QtCore.QSize(450, 230))
-        about_dialog.setMaximumSize(QtCore.QSize(450, 230))
+        #about_dialog.setMinimumSize(QtCore.QSize(450, 230))
+        #about_dialog.setMaximumSize(QtCore.QSize(450, 230))
         self.gridLayout = QtWidgets.QGridLayout(about_dialog)
         self.gridLayout.setObjectName("gridLayout")
         self.date = QtWidgets.QLabel(about_dialog)
@@ -47,8 +47,8 @@ class AboutWin(object):
 
     def retranslateUi(self, about_dialog):
         _translate = QtCore.QCoreApplication.translate
-        about_dialog.setWindowTitle(_translate("about_dialog", "About MODBUSSER"))
+        about_dialog.setWindowTitle(_translate("about_dialog", "About AR-CON ModBus"))
         self.date.setText(_translate("about_dialog", "(c) Yuri Sh"))
-        self.vers.setText(_translate("about_dialog", "MODBUSSER. Version 1.1.0"))
+        self.vers.setText(_translate("about_dialog", "AR-CON ModBus. Version 1.1.0"))
         self.ok_btn.setText(_translate("about_dialog", "Ок"))
         self.oth.setText(_translate("about_dialog", "Special for APS ENERGIA RUS Ltd."))

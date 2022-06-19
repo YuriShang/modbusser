@@ -14,14 +14,14 @@ from PyQt5 import QtCore, QtGui, QtWidgets
 class SettingsWin(object):
     def setupUi(self, set_win):
         set_win.setObjectName("set_win")
-        set_win.resize(400, 300)
+        #set_win.resize(400, 300)
         sizePolicy = QtWidgets.QSizePolicy(QtWidgets.QSizePolicy.Fixed, QtWidgets.QSizePolicy.Fixed)
         sizePolicy.setHorizontalStretch(0)
         sizePolicy.setVerticalStretch(0)
         sizePolicy.setHeightForWidth(set_win.sizePolicy().hasHeightForWidth())
         set_win.setSizePolicy(sizePolicy)
-        set_win.setMinimumSize(QtCore.QSize(400, 300))
-        set_win.setMaximumSize(QtCore.QSize(400, 300))
+        #set_win.setMinimumSize(QtCore.QSize(400, 300))
+        #set_win.setMaximumSize(QtCore.QSize(400, 300))
         self.gridLayout = QtWidgets.QGridLayout(set_win)
         self.gridLayout.setObjectName("gridLayout")
         self.parity_label = QtWidgets.QLabel(set_win)
@@ -59,10 +59,10 @@ class SettingsWin(object):
 
     def retranslateUi(self, set_win):
         _translate = QtCore.QCoreApplication.translate
-        set_win.setWindowTitle(_translate("set_win", "Настройки COM"))
-        self.parity_label.setText(_translate("set_win", "Четность:"))
-        self.sb_label.setText(_translate("set_win", "Стопбиты:"))
+        set_win.setWindowTitle(_translate("set_win", "COM Settings"))
+        self.parity_label.setText(_translate("set_win", "Parity:"))
+        self.sb_label.setText(_translate("set_win", "Stopbits:"))
         self.com_label.setText(_translate("set_win", "COM:"))
-        self.baud_label.setText(_translate("set_win", "Скорость:"))
+        self.baud_label.setText(_translate("set_win", "Baudrate:"))
 
     
