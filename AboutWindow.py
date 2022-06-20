@@ -11,7 +11,7 @@
 from PyQt5 import QtCore, QtGui, QtWidgets
 
 
-class AboutWin(object):
+class About(object):
     def setupUi(self, about_dialog):
         about_dialog.setObjectName("about_dialog")
         #about_dialog.resize(450, 230)
@@ -41,14 +41,13 @@ class AboutWin(object):
         self.oth = QtWidgets.QLabel(about_dialog)
         self.oth.setObjectName("oth")
         self.gridLayout.addWidget(self.oth, 2, 1, 1, 1)
-
         self.retranslateUi(about_dialog)
         QtCore.QMetaObject.connectSlotsByName(about_dialog)
 
     def retranslateUi(self, about_dialog):
         _translate = QtCore.QCoreApplication.translate
         about_dialog.setWindowTitle(_translate("about_dialog", "About AR-CON ModBus"))
-        self.date.setText(_translate("about_dialog", "(c) Yuri Sh"))
-        self.vers.setText(_translate("about_dialog", "AR-CON ModBus. Version 1.1.0"))
+        self.date.setText(_translate("about_dialog", "(c) Yuri Sh. Ekaterinburg 2022"))
+        self.vers.setText(_translate("about_dialog", "AR-CON ModBus. Version 2.0.0"))
         self.ok_btn.setText(_translate("about_dialog", "Ок"))
         self.oth.setText(_translate("about_dialog", "Special for APS ENERGIA RUS Ltd."))

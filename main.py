@@ -2,33 +2,18 @@ import sys
 import os
 import winreg as reg
 
-import pymodbus
+from pymodbus.exceptions import ModbusIOException, ConnectionException
 from PyQt5 import QtGui, QtCore, QtWidgets
 from pymodbus.client.sync import ModbusSerialClient
 from PyQt5.QtSerialPort import QSerialPortInfo
-from PyQt5.Qt import Qt
 
 import csv
 import time
 import struct
 
-from MainWindow import MainWin
-from DialogWindow import SettingsWin
-from AboutWindow import AboutWin
-
-
-class RowColorDelegateSilver(QtWidgets.QStyledItemDelegate):
-    def initStyleOption(self, option, index):
-        super().initStyleOption(option, index)
-        if option.text.strip():
-            option.backgroundBrush = QtGui.QColor("silver")
-
-
-class RowColorDelegateWhite(QtWidgets.QStyledItemDelegate):
-    def initStyleOption(self, option, index):
-        super().initStyleOption(option, index)
-        if option.text.strip():
-            option.backgroundBrush = QtGui.QColor("white")
+from MainWindow import Main
+from DialogWindow import Settings
+from AboutWindow import About
 
 
 class TableModel(QtCore.QAbstractTableModel):
@@ -40,7 +25,7 @@ class TableModel(QtCore.QAbstractTableModel):
         self.searchProxy = QtCore.QSortFilterProxyModel(self)
         self._data = []
         # check states for 0(first) column
-        self.checkStates = {}
+        self.checkStates = []
         self.header = 'Register', 'Data type', 'ID', 'Status', 'Name', 'Value',
         self.flag = False
 
@@ -67,8 +52,13 @@ class TableModel(QtCore.QAbstractTableModel):
                     return font
 
             if role == QtCore.Qt.CheckStateRole:
-                if index.column() == 0:
-                    return QtCore.Qt.Checked if self.checkStates[self._data[row][0]] == 1 else QtCore.Qt.Unchecked
+                if col == 0:
+                    return QtCore.Qt.Checked if self.checkStates[row] == 1 else QtCore.Qt.Unchecked
+
+            if role == QtCore.Qt.BackgroundRole:
+                if self.checkStates[row] == 1:
+                    return QtGui.QColor("red").lighter(180)
+                return QtGui.QColor("white")
 
     def setData(self, index, value, role=QtCore.Qt.EditRole):
         row = index.row()
@@ -77,24 +67,12 @@ class TableModel(QtCore.QAbstractTableModel):
         if role == QtCore.Qt.EditRole:
             if value:
                 self._data[row][col] = value
-            self.dataChanged.emit(index, index)
+            self.dataChanged.emit(index, index, (role,))
             return True
-        if role == Qt.CheckStateRole and col == 0:
-            self.checkStates[self._data[row][0]] = 1 if value == Qt.Checked else 0
-            # check states when filtering data by proxy
-            self.proxyCheckStates = []
-            for i, el in enumerate(self.checkStates):
-                # append filtered data (first column data)
-                self.proxyCheckStates.append(self.searchProxy.index(i, 0, QtCore.QModelIndex()).data(QtCore.Qt.DisplayRole))
-            if self.flag:
-                if len(win.main_window.searchBox.text()) > 0:
-                    # row index for row color delegate func when filtering (searching)
-                    self.idx = self.proxyCheckStates.index(self._data[row][0])
-                else:
-                    # row index when proxy don't applied
-                    self.idx = row
-                # emit signal for brush selected row
-                upd.row_brush_signal.emit(self.idx, value)
+
+        if role == QtCore.Qt.CheckStateRole:
+            self.checkStates[row] = 1 if value == QtCore.Qt.Checked else 0
+            self.updateTable()
             return True
         return False
 
@@ -115,100 +93,63 @@ class TableModel(QtCore.QAbstractTableModel):
         self.endInsertRows()
         return True
 
-    def removeRows(self, position, rows, parent=QtCore.QModelIndex()):
-        start, end = position, rows
-        self.beginRemoveRows(parent, start, end)
-        del self._data[-1]
-        self.endRemoveRows()
-        return True
-
     def updateTable(self):
         index_1 = self.index(0, 0)
         index_2 = self.index(0, -1)
-        self.searchProxy.dataChanged.emit(index_1, index_2, [QtCore.Qt.DisplayRole])
+        self.searchProxy.dataChanged.emit(index_1, index_2, (QtCore.Qt.DisplayRole,))
 
     def flags(self, index):
         if index.column() == 0:
             return QtCore.Qt.ItemIsEnabled | QtCore.Qt.ItemIsUserCheckable
-        return QtCore.Qt.ItemIsEnabled | QtCore.Qt.ItemIsEditable
+        return QtCore.Qt.ItemIsEnabled | QtCore.Qt.ItemIsEditable | QtCore.Qt.ItemIsUserCheckable
 
 
-class Ui(QtWidgets.QMainWindow):
+class MainWin(QtWidgets.QMainWindow):
     def __init__(self):
         QtWidgets.QMainWindow.__init__(self)
-        super(Ui, self).__init__()
+        super(MainWin, self).__init__()
 
-        self.main_window = MainWin()
-        self.main_window.setupUi(self)
-        self.table = self.main_window.tableView
+        self.mainWin = Main()
+        self.mainWin.setupUi(self)
+        self.table = self.mainWin.tableView
         self.table.horizontalHeader().setStretchLastSection(True)
 
-        # Row color delegates
-        self.silver = RowColorDelegateSilver()
-        self.white = RowColorDelegateWhite()
-
         # Buttons connections
-        self.main_window.open_action.triggered.connect(self.loadCsv)
-        self.main_window.export_action.triggered.connect(self.writeCsv)
-        self.main_window.about_action.triggered.connect(lambda x: about.exec_())
-        self.main_window.status_box.setChecked(True)
-        self.main_window.resetButton.clicked.connect(lambda : self.resetRowBrush(True))
-        self.main_window.resetButton.setDisabled(True)
-        self.main_window.start_btn.setDisabled(True)
+        self.mainWin.open_action.triggered.connect(self.loadCsv)
+        self.mainWin.export_action.triggered.connect(self.writeCsv)
+        self.mainWin.about_action.triggered.connect(lambda x: about.exec_())
+        self.mainWin.statusBox.setChecked(True)
+        self.mainWin.resetButton.clicked.connect(self.resetRowBrush)
+        self.mainWin.resetButton.setDisabled(True)
+        self.mainWin.startBtn.setDisabled(True)
         self.tableResizeAccept = False
-        upd.row_brush_signal.connect(lambda row, state: self.rowColor(row, state))
-        self.main_window.searchBox.textEdited.connect(self.search)
-        self.main_window.searchBox.setDisabled(True)
+        self.mainWin.searchBox.textEdited.connect(self.search)
+        self.mainWin.searchBox.setDisabled(True)
         self.regeditPath = "Software\\QtProject\\OrganizationDefaults\\FileDialog"
 
     def keyPressEvent(self, event):
-        if event.key() == Qt.Key_F and event.modifiers() == Qt.ControlModifier:
-            self.main_window.searchBox.setFocus(QtCore.Qt.ShortcutFocusReason)
+        if event.key() == QtCore.Qt.Key_F and event.modifiers() == QtCore.Qt.ControlModifier:
+            self.mainWin.searchBox.setFocus(QtCore.Qt.ShortcutFocusReason)
 
     def search(self):
         """
         search register names by key input
         """
         self.model.searchProxy.setFilterKeyColumn(4)
-        self.model.searchProxy.setFilterRegExp(self.main_window.searchBox.text())
-        self.resetRowBrush(False)
-
-        # correct painting selected rows for proxy data
-        if self.main_window.searchBox.text():
-            for i, row in enumerate(self.model.checkStates):
-                if self.model.checkStates.get(self.model.searchProxy.index(i, 0, QtCore.QModelIndex()).data(QtCore.Qt.DisplayRole)) == 1:
-                    self.rowColor(i, True)
-        # for all data
-        else:
-            for i, row in enumerate(self.model.checkStates):
-                self.rowColor(i, self.model.checkStates[row])
+        self.model.searchProxy.setFilterRegExp(self.mainWin.searchBox.text())
 
         # hide rows with minuses by default
-        if self.main_window.status_box.checkState():
-            self.hide_minuses()
+        if self.mainWin.statusBox.checkState():
+            self.hideMinusRows()
 
-    def resetRowBrush(self, flag):
+    def resetRowBrush(self):
         """
         return default color and uncheck all checboxes for all rows
-        :param flag: if flag is True, reset checkboxes, else reset only row color
-        :return:
         """
-        for i, row in enumerate(self.model.checkStates):
-            self.rowColor(i, 0)
-            if flag:
-                if self.model.checkStates[row] == 1:
-                    self.model.checkStates[row] = 0
+        for i in range(len(self.model.checkStates)):
+            self.model.checkStates[i] = 0
+        self.model.updateTable()
 
-    def rowColor(self, row, state):
-        """
-        painting selected rows to silver color
-        :param row: selected row
-        :param state: if False - reset row color to white
-        """
-        if state:
-            self.table.setItemDelegateForRow(row, self.silver)
-        else:
-            self.table.setItemDelegateForRow(row, self.white)
 
     def loadCsv(self, fileName):
         """
@@ -238,26 +179,26 @@ class Ui(QtWidgets.QMainWindow):
             # insert new data from modbus map to table
             self.model.insertRows(self.rows)
             # hide rows with minuses
-            self.main_window.status_box.stateChanged.connect(self.hide_minuses)
+            self.mainWin.statusBox.stateChanged.connect(self.hideMinusRows)
 
             if not self.tableResizeAccept:
                 self.table.resizeColumnsToContents()
                 self.tableResizeAccept = True
             self.model.flag = True
-            self.hide_minuses()
-            self.resetRowBrush(True)
+            self.hideMinusRows()
+            self.resetRowBrush()
             # activate all buttons
             if self.rows:
-                self.main_window.start_btn.setDisabled(False)
-                self.main_window.resetButton.setDisabled(False)
-                self.main_window.searchBox.setDisabled(False)
+                self.mainWin.startBtn.setDisabled(False)
+                self.mainWin.resetButton.setDisabled(False)
+                self.mainWin.searchBox.setDisabled(False)
                 self.rows.clear()
                 self.ints.clear()
         reg.CloseKey(self.key)
 
     def loadCsvOnOpen(self, fileName):
-        if child.client:
-            child.stop(True)
+        if dialog.client:
+            dialog.stop(True)
         if fileName:
             print(fileName + " loaded")
             f = open(fileName, 'r')
@@ -271,11 +212,13 @@ class Ui(QtWidgets.QMainWindow):
                 self.ints = []
                 # parsed data form modbus map
                 self.rows = []
-                self.max_len = 0
+                self.maxLen = 0
                 # json filename
                 self.name = ()
+                self.model.checkStates = []
                 # iterating and parsing rows from map
-                for row in csv.reader(f, delimiter="|"):
+                for row in (csv.reader(f, delimiter="|")):
+                    self.model.checkStates.append(0)
                     if len(row) == 1:
                         self.name += row[0],
                         continue
@@ -288,25 +231,24 @@ class Ui(QtWidgets.QMainWindow):
                     if row[0] == '     ':
                         continue
                     row[4] = row[4].strip(' ')
-                    if len(row[4]) > self.max_len:
-                        self.max_len = len(row[4])
+                    if len(row[4]) > self.maxLen:
+                        self.maxLen = len(row[4])
                     row.append('')
-                    self.model.checkStates.setdefault(row[0], 0)
                     self.rows.append(row)
                     # implementing cortage with register and data type
                     cort = (int(row[0]), row[1].strip())
                     self.regs.append(cort)
 
-            self.main_window.name_label.setText(self.name[0])
+            self.mainWin.name_label.setText(self.name[0])
             # dict for INT data. Keys - registers with INT (signed) data type, values - states (str)
-            self.dict = {}
-            current_digit = None
+            self.intDataType = {}
+            num = None
             for el in self.ints:
                 if isinstance(el, int):
-                    current_digit = el
-                    self.dict[el] = []
+                    num = el
+                    self.intDataType[el] = []
                 else:
-                    self.dict[current_digit].append(el)
+                    self.intDataType[num].append(el)
 
 
     def writeCsv(self, fileName):
@@ -315,8 +257,8 @@ class Ui(QtWidgets.QMainWindow):
         :param fileName: path and filename
         """
         # stop modbus client
-        if child.client:
-            child.stop(True)
+        if dialog.client:
+            dialog.stop(True)
 
         # get checked(selected) rows for save
         checkedRows = [i for i, row in enumerate(self.model.checkStates) if self.model.checkStates[row] == 1]
@@ -340,48 +282,48 @@ class Ui(QtWidgets.QMainWindow):
                 writer.writerow("")
 
                 for row in rows:
-                    row_data = []
+                    rowData = []
                     for col in range(self.model.columnCount(0)):
-                        row_data.append(
+                        rowData.append(
                             self.model.index(row, col, QtCore.QModelIndex()).data(QtCore.Qt.DisplayRole))
-                        if row_data == '':
+                        if rowData == '':
                             continue
-                    row_data[4] = row_data[4].ljust(self.max_len + 1, ' ')
-                    writer.writerow(row_data)
-                row_data.clear()
+                    rowData[4] = rowData[4].ljust(self.maxLen + 1, ' ')
+                    writer.writerow(rowData)
+                rowData.clear()
 
-    def hide_minuses(self):
+    def hideMinusRows(self):
         for row in range(self.model.searchProxy.rowCount()):
-            if self.main_window.status_box.checkState():
+            if self.mainWin.statusBox.checkState():
                 if self.model.searchProxy.index(row, 3, QtCore.QModelIndex()).data(QtCore.Qt.DisplayRole) == " - ":
-                    self.main_window.tableView.setRowHidden(row, True)
+                    self.mainWin.tableView.setRowHidden(row, True)
             else:
-                self.main_window.tableView.setRowHidden(row, False)
+                self.mainWin.tableView.setRowHidden(row, False)
 
 
-class ChildWindow(QtWidgets.QDialog, Ui):
+class DialogWin(QtWidgets.QDialog, Main):
     """
     Implementing dialog window with communication settings.
     Also with modbus client methods
     """
     def __init__(self):
-        super(Ui, self).__init__()
+        super(Main, self).__init__()
         QtWidgets.QDialog.__init__(self, None, QtCore.Qt.WindowFlags(QtCore.Qt.WA_DeleteOnClose))
-        self.settings = SettingsWin()
+        self.settings = Settings()
         self.settings.setupUi(self)
 
         self.cb_data = []
         self.client = None
 
-        win.main_window.slave_id_sb.clear()
-        win.main_window.slave_id_sb.setValue(1)
+        main.mainWin.slaveIdSb.clear()
+        main.mainWin.slaveIdSb.setValue(1)
 
-        win.main_window.scan_rate_sb.clear()
-        win.main_window.scan_rate_sb.setValue(500)
+        main.mainWin.scanRateSb.clear()
+        main.mainWin.scanRateSb.setValue(500)
 
-        self.settings.buttonBox.accepted.connect(self.accept_data)
-        self.settings.buttonBox.rejected.connect(self.reject_data)
-        win.main_window.start_btn.clicked.connect(self.first_start)
+        self.settings.buttonBox.accepted.connect(self.acceptData)
+        self.settings.buttonBox.rejected.connect(self.rejectData)
+        main.mainWin.startBtn.clicked.connect(self.firstStart)
 
         speeds = ('1200', '2400', '4800', '9600', '19200', '38400', '57600', '115200')
         self.settings.baud_set.clear()
@@ -396,7 +338,7 @@ class ChildWindow(QtWidgets.QDialog, Ui):
         self.settings.sb_set.clear()
         self.settings.sb_set.addItems(stop_bits)
 
-        self.accept_data()
+        self.acceptData()
         self.update_ports()
 
     def update_ports(self):
@@ -404,18 +346,16 @@ class ChildWindow(QtWidgets.QDialog, Ui):
         updating active com ports
         """
         self.settings.com_set.clear()
-        info_list = QSerialPortInfo()
-        serial_list = info_list.availablePorts()
-        self.serial_ports = [(f'{port.portName()} {port.description()}') for port in serial_list]
-        self.settings.com_set.addItems(self.serial_ports)
+        self.serialPorts = [(f'{port.portName()} {port.description()}') for port in QSerialPortInfo().availablePorts()]
+        self.settings.com_set.addItems(self.serialPorts)
         self.cb_data[0] = self.settings.com_set.currentText()
         self.set_text()
 
     def set_text(self):
         self.com_port_label_text = (f'{self.cb_data[0]} ({self.cb_data[1]}-{self.cb_data[2]}-{self.cb_data[3]})')
-        win.main_window.com_port_label.setText(self.com_port_label_text)
+        main.mainWin.com_port_label.setText(self.com_port_label_text)
 
-    def accept_data(self):
+    def acceptData(self):
         """
         save settings
         """
@@ -435,7 +375,7 @@ class ChildWindow(QtWidgets.QDialog, Ui):
         worker.moveToThread(self.threadd)
         self.threadd.started.connect(worker.run)
 
-    def reject_data(self):
+    def rejectData(self):
         """
         reject settings
         """
@@ -448,7 +388,7 @@ class ChildWindow(QtWidgets.QDialog, Ui):
             pass
         self.close()
 
-    def first_start(self):
+    def firstStart(self):
         """
         first starting starts with Qthread implement
         next starts with start/stop the Qthread
@@ -460,20 +400,13 @@ class ChildWindow(QtWidgets.QDialog, Ui):
         """
         connecting to modbus slave device and starting read data from this one
         """
-        # implementing QTimer for update the table when data changed every 400 ms
-        self.timer = QtCore.QTimer()
-        self.timer.timeout.connect(win.model.updateTable)
-        self.timer.start(400)
-        try:
-            self.connect()
-        except:
-            win.main_ui.status_label.setText('Error')
-        self._isRunning = True
+        self.connect()
+        self.isRunning = True
         self.threadd.start()
-        win.main_window.start_btn.setText('Stop')
-        win.main_window.start_btn.clicked.disconnect()
-        win.main_window.start_btn.clicked.connect(lambda x: self.stop(True))
-        win.main_window.status_label.setText('Connection...')
+        main.mainWin.startBtn.setText('Stop')
+        main.mainWin.startBtn.clicked.disconnect()
+        main.mainWin.startBtn.clicked.connect(lambda x: self.stop(True))
+        main.mainWin.statusLabel.setText('Connection...')
 
     def connect(self):
         self.client = ModbusSerialClient(
@@ -487,8 +420,8 @@ class ChildWindow(QtWidgets.QDialog, Ui):
         self.client.connect()
 
     def connected(self):
-        win.main_window.status_label.setText('Connected')
-        win.main_window.status_label.setStyleSheet('color: rgb(0, 128, 0);')
+        main.mainWin.statusLabel.setText('Connected')
+        main.mainWin.statusLabel.setStyleSheet('color: rgb(0, 128, 0);')
 
     def stop(self, flag):
         """
@@ -496,39 +429,37 @@ class ChildWindow(QtWidgets.QDialog, Ui):
         :param flag: setting status text ("Stopped") when stops by the stop button,
         if not the flag the error text will be set
         """
-        self.timer.stop()
-        self._isRunning = False
+        self.isRunning = False
         try:
             self.client.socket.close()
         except:
             pass
-        win.main_window.status_label.setStyleSheet('color: rgb(230, 0, 0);')
+        main.mainWin.statusLabel.setStyleSheet('color: rgb(230, 0, 0);')
         if flag:
-            win.main_window.status_label.setText('Stopped')
-        win.main_window.start_btn.setText('Connect')
-        win.main_window.start_btn.clicked.disconnect()
-        win.main_window.start_btn.clicked.connect(self.start)
+            main.mainWin.statusLabel.setText('Stopped')
+        main.mainWin.startBtn.setText('Connect')
+        main.mainWin.startBtn.clicked.disconnect()
+        main.mainWin.startBtn.clicked.connect(self.start)
         self.threadd.terminate()
         self.client = None
 
 
-class AboutWindow(QtWidgets.QDialog):
+class AboutWin(QtWidgets.QDialog):
     def __init__(self):
         QtWidgets.QDialog.__init__(self, None, QtCore.Qt.WindowFlags(QtCore.Qt.WA_DeleteOnClose))
-        self.about = AboutWin()
+        self.about = About()
         self.about.setupUi(self)
         self.setWindowFlag(QtCore.Qt.WindowCloseButtonHint)
         self.about.ok_btn.clicked.connect(self.close)
 
 
-class Upd(QtCore.QObject):
+class Signals(QtCore.QObject):
     """
     implementing signals
     """
-    update_signal = QtCore.pyqtSignal()
-    stop_signal = QtCore.pyqtSignal()
-    err_signal = QtCore.pyqtSignal(bool)
-    row_brush_signal = QtCore.pyqtSignal(int, int)
+    updateSignal = QtCore.pyqtSignal()
+    stopSignal = QtCore.pyqtSignal()
+    errorSignal = QtCore.pyqtSignal(bool)
 
 
 class ReadHoldingRegisters(QtCore.QObject):
@@ -537,121 +468,108 @@ class ReadHoldingRegisters(QtCore.QObject):
     """
     def __init__(self):
         super(ReadHoldingRegisters, self).__init__()
-        self.upd = Upd()
-        self.upd.update_signal.connect(child.connected)
-        self.upd.stop_signal.connect(child.stop)
-        self.upd.err_signal.connect(lambda x: child.stop(x))
-
-    def new_it(self, response):
-        """
-        writing a new data to table with model.setData func
-        :param response: the readed data from device
-        """
-        row = 0
-        for value in response:
-            idx = win.model.createIndex(row, 5)
-            win.model.setData(idx, value)
-            row += 1
-        if child._isRunning:
-            self.upd.update_signal.emit()
+        self.sig = Signals()
+        self.sig.updateSignal.connect(lambda: main.model.updateTable())
+        self.sig.stopSignal.connect(lambda: dialog.stop)
+        self.sig.errorSignal.connect(lambda x: dialog.stop(x))
 
     def run(self):
         count = 125  # max count modbus registers for read once
-        self.res = None
-        slaveID = int(win.main_window.slave_id_sb.value())  # device' slave id
-        reg_blocks = win.regs[-1][0] // count  # the count of blocks with 125 registers
-        last_block = win.regs[-1][0] - reg_blocks * count  # the last block with a amount of the residual registers
+        response = None # responsed data from slave device
+        slaveID = int(main.mainWin.slaveIdSb.value())  # device' slave id
+        regBlocks = main.regs[-1][0] // count  # the count of blocks with 125 registers
+        lastBlock = main.regs[-1][0] - regBlocks * count  # the last block with a amount of the residual registers
 
         try:
-            while child._isRunning:
+            while dialog.isRunning:
                 adr = 0  # the starting register
-                mb_data = []  # the readed data from device
-                response = []  # the parsed data
-                time.sleep((int(win.main_window.scan_rate_sb.value())) / 1000)  # scan rate
+                modbusData = []  # the readed data from device
+                result = []  # the parsed data
+                for i in range(regBlocks):
+                    response = dialog.client.read_holding_registers(address=adr, count=count, unit=slaveID)
+                    adr += count
+                    modbusData.extend(response.registers)
 
-                for i in range(reg_blocks):
-                    self.res = child.client.read_holding_registers(address=adr,
-                                                                   count=count,
-                                                                   unit=slaveID)
-                    adr = adr + count
-                    mb_data.extend(self.res.registers)
-
-                self.res = child.client.read_holding_registers(address=adr,
-                                                               count=last_block,
-                                                               unit=slaveID)
-                mb_data.extend(self.res.registers)
+                response = dialog.client.read_holding_registers(address=adr, count=lastBlock, unit=slaveID)
+                modbusData.extend(response.registers)
 
                 # parsing data by data type
-                for i in range(len(win.regs)):
-                    self.register, data_type = win.regs[i][0], win.regs[i][1]
+                for i in range(len(main.regs)):
+                    register, dataType = main.regs[i][0], main.regs[i][1]
 
-                    if data_type == 'MEA':
-                        self.reg = struct.pack('>HH', mb_data[self.register], mb_data[self.register - 1])
-                        self.reg_float = [struct.unpack('>f', self.reg)]
-                        response.append(str(round(self.reg_float[0][0], 3)))
+                    if dataType == 'MEA':
+                        registerData = struct.pack('>HH', modbusData[register], modbusData[register - 1])
+                        floatData = [struct.unpack('>f', registerData)]
+                        result.append(str(round(floatData[0][0], 3)))
 
-                    elif data_type == 'BIN':
-                        self.reg = mb_data[self.register - 1]
+                    elif dataType == 'BIN':
+                        registerData = modbusData[register - 1]
                         ones = []
                         for x in range(16):
-                            if (self.reg >> x) & 0x1:
+                            if (registerData >> x) & 0x1:
                                 ones.append(' ' + (str(x)))
                         ones.reverse()
-                        self.reg = f"{mb_data[self.register - 1]:>016b}"
+                        registerData = f"{modbusData[register - 1]:>016b}"
                         for j in range(len(ones)):
-                            self.reg = str(self.reg) + ' ' + ones[j]
-                        if self.reg[15] == '1':
-                            self.reg = 'ДА   ' + self.reg
-                        elif self.reg[15] == '0':
-                            self.reg = 'НЕТ  ' + self.reg
-                        if self.reg[14] == '1' and self.reg[20] == '1' and int(self.reg[5:20], 2) < 65:
-                            self.reg = self.reg + ' (Тревога)'
-                        elif self.reg[13] == '1' and self.reg[20] == '1' and int(self.reg[5:20], 2) < 129:
-                            self.reg = self.reg + ' (Предупреждение)'
-                        response.append(self.reg)
+                            registerData += f' {ones[j]}'
+                        if registerData[15] == '1':
+                            registerData = f'ДА   {registerData}'
+                        elif registerData[15] == '0':
+                            registerData = f'НЕТ  {registerData}'
+                        if registerData[14] == '1' and registerData[20] == '1':
+                            registerData += ' (Тревога)'
+                        elif registerData[13] == '1' and registerData[20] == '1':
+                            registerData += ' (Предупреждение)'
+                        result.append(registerData)
 
-                    elif data_type == 'INT':
-                        self.reg = mb_data[self.register - 1]
+                    elif dataType == 'INT':
+                        registerData = modbusData[register - 1]
                         try:
-                            if int(self.reg) > int(len(win.dict[self.register][-1])):
+                            if int(registerData) > int(len(main.intDataType[register][-1])):
                                 continue
                             else:
-                                self.reg = str(win.dict[self.register][self.reg]).replace(': ', ' - ')
+                                registerData = str(main.intDataType[register][registerData]).replace(': ', ' - ')
                         except:
                             pass
-                        response.append(self.reg)
+                        result.append(registerData)
+                row = 0
+                for value in result:
+                    idx = main.model.createIndex(row, 5)
+                    main.model.setData(idx, value)
+                    row += 1
 
-                self.new_it(response)
+                self.sig.updateSignal.emit()
+                time.sleep((int(main.mainWin.scanRateSb.value())) / 1000)  # scan rate
 
-        except pymodbus.exceptions.ConnectionException:
-            win.main_window.status_label.setText(
-            f"{child.settings.com_set.currentText().split(' ')[0].strip()}: N/A")
+        except ConnectionException:
+            main.mainWin.statusLabel.setText(
+            f"{dialog.settings.com_set.currentText().split(' ')[0].strip()}: N/A")
         except AttributeError:
-            if type(self.res) == pymodbus.exceptions.ModbusIOException:
-                win.main_window.status_label.setText("Timeout")
+            if type(response) == ModbusIOException:
+                main.mainWin.statusLabel.setText("Timeout")
         finally:
-            self.upd.err_signal.emit(False)
+            self.sig.errorSignal.emit(False)
 
 
-def child_exec():
-    if child.client:
-        child.stop(True)
+def childExec():
+    if dialog.client:
+        dialog.stop(True)
     else:
-        child.update_ports()
-    child.show()
+        dialog.update_ports()
+    dialog.show()
 
 
 if __name__ == '__main__':
     app = QtWidgets.QApplication(sys.argv)
     app.setWindowIcon(QtGui.QIcon('icon.ico'))
-    upd = Upd()
+    sig = Signals()
 
-    win = Ui()
-    child = ChildWindow()
-    about = AboutWindow()
+    main = MainWin()
+    dialog = DialogWin()
+    about = AboutWin()
     worker = ReadHoldingRegisters()
-    win.show()
-    btn = win.main_window.set_btn
-    btn.clicked.connect(child_exec)
+    main.show()
+    btn = main.mainWin.setBtn
+    btn.clicked.connect(childExec)
     sys.exit(app.exec_())
 

@@ -11,7 +11,7 @@
 from PyQt5 import QtCore, QtGui, QtWidgets
 
 
-class SettingsWin(object):
+class Settings(object):
     def setupUi(self, set_win):
         set_win.setObjectName("set_win")
         #set_win.resize(400, 300)
