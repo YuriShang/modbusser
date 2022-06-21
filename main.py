@@ -26,6 +26,7 @@ class TableModel(QtCore.QAbstractTableModel):
         self._data = []
         # check states for 0(first) column
         self.checkStates = []
+        self.colCheckState = 0
         self.header = 'Register', 'Data type', 'ID', 'Status', 'Name', 'Value',
         self.flag = False
 
@@ -45,19 +46,15 @@ class TableModel(QtCore.QAbstractTableModel):
                 if col == 4:
                     return QtGui.QColor('brown')
 
-            if role == QtCore.Qt.FontRole:
-                font = QtGui.QFont()
-                if col == 5:
-                    font.setWeight(50)
-                    return font
-
             if role == QtCore.Qt.CheckStateRole:
                 if col == 0:
                     return QtCore.Qt.Checked if self.checkStates[row] == 1 else QtCore.Qt.Unchecked
 
             if role == QtCore.Qt.BackgroundRole:
                 if self.checkStates[row] == 1:
-                    return QtGui.QColor("red").lighter(180)
+                    color = QtGui.QColor("brown")
+                    color.setAlpha(90)
+                    return color
                 return QtGui.QColor("white")
 
     def setData(self, index, value, role=QtCore.Qt.EditRole):
@@ -83,6 +80,9 @@ class TableModel(QtCore.QAbstractTableModel):
         return 6
 
     def headerData(self, col, orientation, role):
+        if orientation == QtCore.Qt.Horizontal and role == QtCore.Qt.DecorationRole:
+            if col == 0:
+                return QtCore.Qt.Checked if self.colCheckState == 1 else QtCore.Qt.Unchecked
         if orientation == QtCore.Qt.Horizontal and role == QtCore.Qt.DisplayRole:
             return QtCore.QVariant(self.header[col])
         return QtCore.QVariant()
@@ -149,7 +149,6 @@ class MainWin(QtWidgets.QMainWindow):
         for i in range(len(self.model.checkStates)):
             self.model.checkStates[i] = 0
         self.model.updateTable()
-
 
     def loadCsv(self, fileName):
         """
@@ -218,7 +217,6 @@ class MainWin(QtWidgets.QMainWindow):
                 self.model.checkStates = []
                 # iterating and parsing rows from map
                 for row in (csv.reader(f, delimiter="|")):
-                    self.model.checkStates.append(0)
                     if len(row) == 1:
                         self.name += row[0],
                         continue
@@ -231,6 +229,7 @@ class MainWin(QtWidgets.QMainWindow):
                     if row[0] == '     ':
                         continue
                     row[4] = row[4].strip(' ')
+                    self.model.checkStates.append(0)
                     if len(row[4]) > self.maxLen:
                         self.maxLen = len(row[4])
                     row.append('')
@@ -250,7 +249,6 @@ class MainWin(QtWidgets.QMainWindow):
                 else:
                     self.intDataType[num].append(el)
 
-
     def writeCsv(self, fileName):
         """
         saving data from table to txt file, delimiters is "|"
@@ -261,7 +259,12 @@ class MainWin(QtWidgets.QMainWindow):
             dialog.stop(True)
 
         # get checked(selected) rows for save
-        checkedRows = [i for i, row in enumerate(self.model.checkStates) if self.model.checkStates[row] == 1]
+        checkedRows = []
+
+        for row in range(self.model.searchProxy.rowCount()):
+            if self.model.searchProxy.index(row, 0, QtCore.QModelIndex()).data(QtCore.Qt.CheckStateRole):
+                checkedRows.append()
+
         # if no checked save all data
         rows = [range(self.model.rowCount(0)), checkedRows][any(checkedRows)]
         jsonName = self.name[0].split(':')[1].strip(' .json')
@@ -312,62 +315,64 @@ class DialogWin(QtWidgets.QDialog, Main):
         self.settings = Settings()
         self.settings.setupUi(self)
 
-        self.cb_data = []
+        self.cbData = []
         self.client = None
 
         main.mainWin.slaveIdSb.clear()
         main.mainWin.slaveIdSb.setValue(1)
 
         main.mainWin.scanRateSb.clear()
-        main.mainWin.scanRateSb.setValue(500)
+        main.mainWin.scanRateSb.setValue(400)
 
         self.settings.buttonBox.accepted.connect(self.acceptData)
         self.settings.buttonBox.rejected.connect(self.rejectData)
         main.mainWin.startBtn.clicked.connect(self.firstStart)
 
         speeds = ('1200', '2400', '4800', '9600', '19200', '38400', '57600', '115200')
-        self.settings.baud_set.clear()
-        self.settings.baud_set.addItems(speeds)
-        self.settings.baud_set.setCurrentIndex(5)
+        self.settings.baudSet.clear()
+        self.settings.baudSet.addItems(speeds)
+        self.settings.baudSet.setCurrentIndex(5)
 
         parity = ('N', 'E')
-        self.settings.parity_set.clear()
-        self.settings.parity_set.addItems(parity)
+        self.settings.paritySet.clear()
+        self.settings.paritySet.addItems(parity)
 
-        stop_bits = ('1', '2')
-        self.settings.sb_set.clear()
-        self.settings.sb_set.addItems(stop_bits)
+        stopBits = ('1', '2')
+        self.settings.sbSet.clear()
+        self.settings.sbSet.addItems(stopBits)
 
         self.acceptData()
-        self.update_ports()
+        self.updatePorts()
 
-    def update_ports(self):
+    def updatePorts(self):
         """
         updating active com ports
         """
-        self.settings.com_set.clear()
+        comSetData = [self.settings.comSet.itemText(i) for i in range(self.settings.comSet.count())]
         self.serialPorts = [(f'{port.portName()} {port.description()}') for port in QSerialPortInfo().availablePorts()]
-        self.settings.com_set.addItems(self.serialPorts)
-        self.cb_data[0] = self.settings.com_set.currentText()
-        self.set_text()
+        if comSetData != self.serialPorts:
+            self.settings.comSet.clear()
+            self.settings.comSet.addItems(self.serialPorts)
+            self.cbData[0] = self.settings.comSet.currentText()
+            self.setText()
 
-    def set_text(self):
-        self.com_port_label_text = (f'{self.cb_data[0]} ({self.cb_data[1]}-{self.cb_data[2]}-{self.cb_data[3]})')
-        main.mainWin.com_port_label.setText(self.com_port_label_text)
+    def setText(self):
+        self.comLabelText = (f'{self.cbData[0]} ({self.cbData[1]}-{self.cbData[2]}-{self.cbData[3]})')
+        main.mainWin.comLabel.setText(self.comLabelText)
 
     def acceptData(self):
         """
         save settings
         """
-        self.cb_data.clear()
-        self.cb_data.append(self.settings.com_set.currentText())
-        self.cb_data.append(self.settings.baud_set.currentText())
-        self.cb_data.append(self.settings.parity_set.currentText())
-        self.cb_data.append(self.settings.sb_set.currentText())
-        self.set_text()
+        self.cbData.clear()
+        self.cbData.append(self.settings.comSet.currentText())
+        self.cbData.append(self.settings.baudSet.currentText())
+        self.cbData.append(self.settings.paritySet.currentText())
+        self.cbData.append(self.settings.sbSet.currentText())
+        self.setText()
         self.close()
 
-    def thread_start(self):
+    def threadStart(self):
         """
         implementing thread for modbus client
         """
@@ -380,10 +385,10 @@ class DialogWin(QtWidgets.QDialog, Main):
         reject settings
         """
         try:
-            self.settings.com_set.setCurrentText(self.cb_data[0])
-            self.settings.baud_set.setCurrentText(self.cb_data[1])
-            self.settings.parity_set.setCurrentText(self.cb_data[2])
-            self.settings.sb_set.setCurrentText(self.cb_data[3])
+            self.settings.comSet.setCurrentText(self.cbData[0])
+            self.settings.baudSet.setCurrentText(self.cbData[1])
+            self.settings.paritySet.setCurrentText(self.cbData[2])
+            self.settings.sbSet.setCurrentText(self.cbData[3])
         except:
             pass
         self.close()
@@ -393,7 +398,7 @@ class DialogWin(QtWidgets.QDialog, Main):
         first starting starts with Qthread implement
         next starts with start/stop the Qthread
         """
-        self.thread_start()
+        self.threadStart()
         self.start()
 
     def start(self):
@@ -411,11 +416,11 @@ class DialogWin(QtWidgets.QDialog, Main):
     def connect(self):
         self.client = ModbusSerialClient(
             method='rtu',
-            port=self.settings.com_set.currentText().split(' ')[0].strip(),
-            baudrate=int(self.settings.baud_set.currentText()),
+            port=self.settings.comSet.currentText().split(' ')[0].strip(),
+            baudrate=int(self.settings.baudSet.currentText()),
             timeout=1,
-            parity=self.settings.parity_set.currentText(),
-            stopbits=int(self.settings.sb_set.currentText()),
+            parity=self.settings.paritySet.currentText(),
+            stopbits=int(self.settings.sbSet.currentText()),
             bytesize=8)
         self.client.connect()
 
@@ -460,6 +465,7 @@ class Signals(QtCore.QObject):
     updateSignal = QtCore.pyqtSignal()
     stopSignal = QtCore.pyqtSignal()
     errorSignal = QtCore.pyqtSignal(bool)
+    connectionSignal = QtCore.pyqtSignal()
 
 
 class ReadHoldingRegisters(QtCore.QObject):
@@ -470,8 +476,9 @@ class ReadHoldingRegisters(QtCore.QObject):
         super(ReadHoldingRegisters, self).__init__()
         self.sig = Signals()
         self.sig.updateSignal.connect(lambda: main.model.updateTable())
-        self.sig.stopSignal.connect(lambda: dialog.stop)
+        self.sig.stopSignal.connect(lambda x: dialog.stop(x))
         self.sig.errorSignal.connect(lambda x: dialog.stop(x))
+        self.sig.connectionSignal.connect(lambda: dialog.connected())
 
     def run(self):
         count = 125  # max count modbus registers for read once
@@ -496,9 +503,12 @@ class ReadHoldingRegisters(QtCore.QObject):
                 # parsing data by data type
                 for i in range(len(main.regs)):
                     register, dataType = main.regs[i][0], main.regs[i][1]
-
                     if dataType == 'MEA':
-                        registerData = struct.pack('>HH', modbusData[register], modbusData[register - 1])
+                        delta = 0
+                        if register == len(modbusData):
+                            delta += 1
+                            lastBlock += 1
+                        registerData = struct.pack('>HH', modbusData[register - delta], modbusData[register - delta - 1])
                         floatData = [struct.unpack('>f', registerData)]
                         result.append(str(round(floatData[0][0], 3)))
 
@@ -510,16 +520,16 @@ class ReadHoldingRegisters(QtCore.QObject):
                                 ones.append(' ' + (str(x)))
                         ones.reverse()
                         registerData = f"{modbusData[register - 1]:>016b}"
+                        if registerData[9] == '1' and registerData[15] == '1' and int(registerData, 2) <= 65:
+                            registerData += ' (Тревога)'
+                        elif registerData[8] == '1' and registerData[15] == '1' and int(registerData, 2) <= 129:
+                            registerData += ' (Предупреждение)'
                         for j in range(len(ones)):
                             registerData += f' {ones[j]}'
                         if registerData[15] == '1':
                             registerData = f'ДА   {registerData}'
                         elif registerData[15] == '0':
                             registerData = f'НЕТ  {registerData}'
-                        if registerData[14] == '1' and registerData[20] == '1':
-                            registerData += ' (Тревога)'
-                        elif registerData[13] == '1' and registerData[20] == '1':
-                            registerData += ' (Предупреждение)'
                         result.append(registerData)
 
                     elif dataType == 'INT':
@@ -539,11 +549,12 @@ class ReadHoldingRegisters(QtCore.QObject):
                     row += 1
 
                 self.sig.updateSignal.emit()
+                self.sig.connectionSignal.emit()
                 time.sleep((int(main.mainWin.scanRateSb.value())) / 1000)  # scan rate
 
         except ConnectionException:
             main.mainWin.statusLabel.setText(
-            f"{dialog.settings.com_set.currentText().split(' ')[0].strip()}: N/A")
+            f"{dialog.settings.comSet.currentText().split(' ')[0].strip()}: N/A")
         except AttributeError:
             if type(response) == ModbusIOException:
                 main.mainWin.statusLabel.setText("Timeout")
@@ -555,7 +566,7 @@ def childExec():
     if dialog.client:
         dialog.stop(True)
     else:
-        dialog.update_ports()
+        dialog.updatePorts()
     dialog.show()
 
 
