@@ -1,18 +1,17 @@
 import sys
 import os
-import pkgutil
-import winreg as reg
-import threading
-
-from pymodbus.exceptions import ModbusIOException, ConnectionException
-from pymodbus.pdu import ExceptionResponse
-from PyQt5 import QtGui, QtCore, QtWidgets
-from pymodbus.client.sync import ModbusSerialClient
-import serial.tools.list_ports as SerialPortInfo
 
 import csv
 import time
 import struct
+import winreg as reg
+import threading
+
+from PyQt5 import QtGui, QtCore, QtWidgets
+from pymodbus.exceptions import ModbusIOException, ConnectionException
+from pymodbus.pdu import ExceptionResponse
+from pymodbus.client.sync import ModbusSerialClient
+import serial.tools.list_ports as SerialPortInfo
 
 from MainWindow import Main
 from DialogWindow import Dialog
