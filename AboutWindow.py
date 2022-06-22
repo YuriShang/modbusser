@@ -35,7 +35,6 @@ class About(object):
         self.gridLayout.addWidget(self.ok_btn, 0, 2, 1, 1)
         self.pict = QtWidgets.QLabel(about_dialog)
         self.pict.setText("")
-        self.pict.setPixmap(QtGui.QPixmap("icon.ico"))
         self.pict.setObjectName("pict")
         self.gridLayout.addWidget(self.pict, 0, 1, 1, 1)
         self.oth = QtWidgets.QLabel(about_dialog)
