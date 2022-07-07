@@ -1,5 +1,5 @@
 # modbusser
-This app developed just for fun. 
+This app developed for simplify work with modbus.
 Main funtion this program is importing ModBus map in txt format
 and reading data from slave device with registers in the map.
 
